@@ -45,6 +45,7 @@ if not hasattr(watch_module,'backup_names'):
     watch_module=importlib.reload(watch_module)
 clean_codes,export_backup,restore_backup,MAX_WATCH,clean_names,backup_names = (getattr(watch_module,k) for k in ('clean_codes','export_backup','restore_backup','MAX_WATCH','clean_names','backup_names'))
 from predash.paper import new_account, replay, execute, export_account, restore_account, PaperError
+from predash.watch_compare import comparison_rows, comparison_warnings, comparison_csv
 
 st.set_page_config(page_title='PreDash · 내 계좌 점검실', page_icon='◈', layout='wide')
 st.html('''<style>
@@ -582,6 +583,26 @@ elif page=='관심종목':
         st.session_state.watch_name_attempts=list(attempted)
     if not codes:st.info('종목을 추가하면 목록에 남습니다. 저장 후 목록 전체 새로고침을 눌러 자료를 확인하세요.')
     elif not results:st.info('저장된 종목을 확인했습니다. 목록 전체 새로고침을 누르면 최신 공식 자료를 가져옵니다.')
+    if codes:
+        st.subheader('관심종목 비교표')
+        st.caption('같은 업종의 종목을 선택해 추세·실적을 나란히 비교하세요. 열 제목을 누르면 정렬할 수 있습니다.')
+        # Drop removed codes before Streamlit restores the widget selection.
+        if 'watch_compare_codes' in st.session_state:
+            st.session_state.watch_compare_codes=[c for c in st.session_state.watch_compare_codes if c in codes]
+        else:st.session_state.watch_compare_codes=list(codes)
+        selected=st.multiselect('비교할 종목',codes,
+            format_func=lambda c:f"{st.session_state.watch_names.get(c,c)} · {c}",key='watch_compare_codes')
+        rows=comparison_rows(selected,results,st.session_state.watch_names)
+        if rows:
+            for message in comparison_warnings(rows):st.warning(message)
+            numeric_columns={'종가 (원)':'%.0f','매출 (억원)':'%.1f','매출 증가율 (%)':'%.1f',
+                '영업이익 (억원)':'%.1f','영업이익 증가율 (%)':'%.1f','영업이익률 (%)':'%.1f','시가총액 (억원)':'%.1f'}
+            st.dataframe(rows,hide_index=True,use_container_width=True,
+                column_config={**{name:st.column_config.NumberColumn(name,format=fmt) for name,fmt in numeric_columns.items()},
+                    '실적 공시':st.column_config.LinkColumn('실적 공시',display_text='DART 원문')})
+            st.download_button('비교표 CSV 다운로드',data=comparison_csv(rows),file_name='predash-watch-comparison.csv',mime='text/csv')
+            st.caption('출처: 종가·추세 공공데이터포털 / 누적 동기 실적 OpenDART / 시가총액 KRX. 빈칸은 미확인·산정 보류이며 0이 아닙니다. 전년 동기 값이 0 이하이면 증가율을 보류합니다. PER·PBR은 현재 조회하지 않습니다.')
+        else:st.info('비교할 종목을 선택하세요.')
     for code in codes:
         item=results.get(code)
         display_name=st.session_state.watch_names.get(code,code)
