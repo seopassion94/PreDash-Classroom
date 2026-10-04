@@ -9,6 +9,7 @@ import importlib
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import streamlit as st
+import pandas as pd
 import predash.kis as kis_module
 if not hasattr(kis_module.KIS,'market_flow'):
     kis_module=importlib.reload(kis_module)
@@ -584,8 +585,19 @@ elif page=='관심종목':
     if not codes:st.info('종목을 추가하면 목록에 남습니다. 저장 후 목록 전체 새로고침을 눌러 자료를 확인하세요.')
     elif not results:st.info('저장된 종목을 확인했습니다. 목록 전체 새로고침을 누르면 최신 공식 자료를 가져옵니다.')
     if codes:
-        st.subheader('관심종목 비교표')
-        st.caption('같은 업종의 종목을 선택해 추세·실적을 나란히 비교하세요. 열 제목을 누르면 정렬할 수 있습니다.')
+        st.html('''<style>
+        .pd-compare-heading{display:flex;align-items:center;justify-content:space-between;gap:16px;margin:26px 0 14px;padding:20px 24px;background:linear-gradient(120deg,#173e30,#2b5642);border-radius:12px;color:#fff}
+        .pd-compare-heading small{display:block;color:#d8c795;font-size:12px;font-weight:700;letter-spacing:.15em;margin-bottom:6px}
+        .pd-compare-heading strong{font-size:23px;letter-spacing:-.04em;color:#fff}
+        .pd-compare-heading p{font-size:14px;color:#dce7dc;margin:6px 0 0}
+        .pd-compare-heading span{border:1px solid #718b72;border-radius:20px;padding:7px 12px;color:#eee6cd;font-size:13px;white-space:nowrap}
+        .pd-compare-stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:10px 0 18px}
+        .pd-compare-stats>div{background:#fffef9;border:1px solid #dddccc;border-radius:10px;padding:16px 20px}
+        .pd-compare-stats small{display:block;font-size:13px;color:#637265;margin-bottom:7px}
+        .pd-compare-stats b{font-size:24px;color:#214b3a;letter-spacing:-.04em}
+        .pd-compare-stats em{font-size:13px;color:#876119;font-style:normal;margin-left:5px}
+        @media(max-width:700px){.pd-compare-heading{padding:18px;align-items:flex-start}.pd-compare-heading span{display:none}.pd-compare-stats{gap:7px}.pd-compare-stats>div{padding:12px}.pd-compare-stats b{font-size:20px}}
+        </style><div class="pd-compare-heading"><div><small>WATCHLIST / COMPARE</small><strong>관심종목 비교표</strong><p>기업의 규모, 성장, 수익성을 한눈에 비교하세요.</p></div><span>공식 데이터 기준</span></div>''')
         # Drop removed codes before Streamlit restores the widget selection.
         if 'watch_compare_codes' in st.session_state:
             st.session_state.watch_compare_codes=[c for c in st.session_state.watch_compare_codes if c in codes]
@@ -594,12 +606,33 @@ elif page=='관심종목':
             format_func=lambda c:f"{st.session_state.watch_names.get(c,c)} · {c}",key='watch_compare_codes')
         rows=comparison_rows(selected,results,st.session_state.watch_names)
         if rows:
+            financial_count=sum(row['실적 기간']!='미확인' for row in rows)
+            price_count=sum(row['종가 (원)'] is not None for row in rows)
+            st.html(f'''<div class="pd-compare-stats"><div><small>비교 종목</small><b>{len(rows)}</b><em>개</em></div><div><small>실적 확인</small><b>{financial_count}</b><em>/ {len(rows)}개</em></div><div><small>종가 확인</small><b>{price_count}</b><em>/ {len(rows)}개</em></div></div>''')
             for message in comparison_warnings(rows):st.warning(message)
             numeric_columns={'종가 (원)':'%.0f','매출 (억원)':'%.1f','매출 증가율 (%)':'%.1f',
                 '영업이익 (억원)':'%.1f','영업이익 증가율 (%)':'%.1f','영업이익률 (%)':'%.1f','시가총액 (억원)':'%.1f'}
-            st.dataframe(rows,hide_index=True,use_container_width=True,
-                column_config={**{name:st.column_config.NumberColumn(name,format=fmt) for name,fmt in numeric_columns.items()},
-                    '실적 공시':st.column_config.LinkColumn('실적 공시',display_text='DART 원문')})
+            def compare_color(value):
+                if pd.isna(value):return 'color: #829081'
+                if value>0:return 'color: #ae2437; background-color: #fff1f0; font-weight: 650'
+                if value<0:return 'color: #1b5ca0; background-color: #eef4fc; font-weight: 650'
+                return 'color: #53665c'
+            views=[('실적 비교',['종목명','종목코드','매출 (억원)','매출 증가율 (%)','영업이익 (억원)','영업이익 증가율 (%)','영업이익률 (%)','실적 기간','회계 기준']),
+                ('가격·추세',['종목명','종목코드','시장','종가 (원)','추세','시가총액 (억원)','종가 기준일','KRX 기준일']),
+                ('기준일·출처',['종목명','종목코드','실적 기간','회계 기준','실적 조회일','종가 기준일','KRX 기준일','자료 조회','실적 공시'])]
+            tabs=st.tabs([label for label,_ in views])
+            frame=pd.DataFrame(rows)
+            for tab,(_,columns) in zip(tabs,views):
+                with tab:
+                    styled=frame[columns].style
+                    signed_columns=[c for c in ('매출 증가율 (%)','영업이익 증가율 (%)') if c in columns]
+                    if signed_columns:styled=styled.map(compare_color,subset=signed_columns)
+                    st.dataframe(styled,hide_index=True,use_container_width=True,
+                        height=min(500,36*(len(rows)+1)+4),
+                        column_config={**{name:st.column_config.NumberColumn(name,format=('localized' if name in ('종가 (원)','매출 (억원)','영업이익 (억원)','시가총액 (억원)') else fmt)) for name,fmt in numeric_columns.items()},
+                            '종목명':st.column_config.TextColumn('종목명',width='medium'),
+                            '실적 공시':st.column_config.LinkColumn('실적 공시',display_text='DART 원문')})
+            st.caption('열 제목을 눌러 정렬 · 빨강은 증가, 파랑은 감소 · 색상은 매수·매도 신호가 아닙니다.')
             st.download_button('비교표 CSV 다운로드',data=comparison_csv(rows),file_name='predash-watch-comparison.csv',mime='text/csv')
             st.caption('출처: 종가·추세 공공데이터포털 / 누적 동기 실적 OpenDART / 시가총액 KRX. 빈칸은 미확인·산정 보류이며 0이 아닙니다. 전년 동기 값이 0 이하이면 증가율을 보류합니다. PER·PBR은 현재 조회하지 않습니다.')
         else:st.info('비교할 종목을 선택하세요.')
