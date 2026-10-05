@@ -142,22 +142,40 @@ def earnings_card(label, current, prior, year):
     elif prior<0 and current<0:change='적자 축소' if delta>0 else '적자 확대' if delta<0 else '변동 없음'
     else:change='증가' if delta>0 else '감소' if delta<0 else '변동 없음'
     tone='up' if delta>0 else 'down' if delta<0 else 'flat'
-    low=min(0,current,prior);high=max(0,current,prior)
-    span=high-low or 1
-    low-=span*.18;high+=span*.28
-    y=lambda value:28+(high-value)/(high-low)*150
-    zero=y(0)
-    svg=[]
-    for tick in (low+(high-low)*.2,low+(high-low)*.6):
-        yy=y(tick)
-        svg.append(f"<line x1='58' y1='{yy:.1f}' x2='342' y2='{yy:.1f}' stroke='#e6e8dd'/><text x='50' y='{yy+4:.1f}' text-anchor='end' fill='#718075' font-size='11'>{tick:,.0f}</text>")
-    svg.append(f"<line x1='58' y1='{zero:.1f}' x2='342' y2='{zero:.1f}' stroke='#a2b1a3'/><text x='50' y='{zero+4:.1f}' text-anchor='end' fill='#718075' font-size='11'>0</text>")
-    for x,value,color,period in ((108,prior,'#a9b9ac',str(year-1)),(246,current,'#214b3a',str(year))):
-        yy=y(value);height=abs(zero-yy)
-        text_y=yy-9 if value>=0 else yy+18
-        svg.append(f"<rect x='{x}' y='{min(zero,yy):.1f}' width='58' height='{height:.1f}' rx='4' fill='{color}'><title>{period}년: {value:,.1f}억원</title></rect><text x='{x+29}' y='{text_y:.1f}' text-anchor='middle' fill='#183b30' font-size='14' font-weight='700'>{value:,.1f}</text><text x='{x+29}' y='212' text-anchor='middle' fill='#53665c' font-size='13'>{period}년</text>")
-    accessible=html.escape(f'{label}: {year-1}년 {prior:,.1f}억원, {year}년 {current:,.1f}억원')
-    return f"""<section class="pd-earn-card"><div class="pd-earn-head"><b>{title}<small>억원 · 같은 기간 비교</small></b><span class="pd-earn-badge {tone}">{change}</span></div><div class="pd-earn-value">{current:,.1f}<small>억원</small></div><div class="pd-earn-delta">전년 동기 대비 <strong>{delta:+,.1f}억원</strong></div><svg viewBox="0 0 380 232" role="img" aria-label="{accessible}" style="width:100%;display:block;font-family:inherit">{''.join(svg)}</svg></section>"""
+    return f"""<section class="pd-earn-card"><div class="pd-earn-head"><b>{title}<small>억원 · 같은 기간 비교</small></b><span class="pd-earn-badge {tone}">{change}</span></div><div class="pd-earn-value">{current:,.1f}<small>억원</small></div><div class="pd-earn-delta">전년 동기 대비 <strong>{delta:+,.1f}억원</strong></div></section>"""
+
+def earnings_chart(current, prior, year):
+    """Render the actual amounts as an interactive signed bar chart."""
+    if current is None or prior is None:
+        return
+    rows=[{'기간':f'{year-1}년','금액':prior},{'기간':f'{year}년','금액':current}]
+    encoding={
+        'x':{'field':'기간','type':'nominal','sort':[f'{year-1}년',f'{year}년'],
+             'axis':{'title':None,'labelAngle':0,'labelFontSize':14}},
+        'y':{'field':'금액','type':'quantitative',
+             'scale':{'zero':True,'nice':True,'padding':35},
+             'axis':{'title':'금액 (억원)','format':',.0f','gridColor':'#e6e8dd'}},
+        'color':{'field':'기간','type':'nominal',
+                 'scale':{'domain':[f'{year-1}년',f'{year}년'],'range':['#a9b9ac','#214b3a']},
+                 'legend':None},
+        'tooltip':[{'field':'기간','type':'nominal'},
+                   {'field':'금액','type':'quantitative','title':'금액 (억원)','format':',.1f'}]
+    }
+    layers=[
+        {'mark':{'type':'bar','size':64,'cornerRadiusEnd':4},'encoding':encoding},
+        {'mark':{'type':'rule','color':'#a2b1a3'},'encoding':{'y':{'datum':0}}},
+        {'transform':[{'filter':'datum.금액 >= 0'}],
+         'mark':{'type':'text','dy':-12,'fontSize':15,'fontWeight':'bold','color':'#183b30'},
+         'encoding':{**{k:v for k,v in encoding.items() if k in ('x','y')},
+                     'text':{'field':'금액','type':'quantitative','format':',.1f'}}},
+        {'transform':[{'filter':'datum.금액 < 0'}],
+         'mark':{'type':'text','dy':14,'fontSize':15,'fontWeight':'bold','color':'#183b30'},
+         'encoding':{**{k:v for k,v in encoding.items() if k in ('x','y')},
+                     'text':{'field':'금액','type':'quantitative','format':',.1f'}}}
+    ]
+    st.vega_lite_chart(pd.DataFrame(rows),
+        {'height':250,'layer':layers,'config':{'view':{'stroke':None},'background':'#fffef9'}},
+        use_container_width=True)
 
 def stock_evidence_charts(item):
     if item.get('relative'):
@@ -194,6 +212,7 @@ def stock_evidence_charts(item):
 </style>""")
             for label,current,prior in [('매출','revenue','prior_revenue'),('영업이익','profit','prior_profit')]:
                 st.html(earnings_card(label,m.get(current),m.get(prior),m['year']))
+                earnings_chart(m.get(current),m.get(prior),m['year'])
             st.caption(f"연한 녹색 = {m['year']-1}년 · 진한 녹색 = {m['year']}년 · 각 항목의 눈금은 별도입니다.")
             st.caption(f"OpenDART · 1~{m['quarter']}분기 누적 · {m['basis']} · 분기 단독 실적 아님 · 적자·0 기저는 증가율 대신 상태 표시")
         else:st.info('동기 실적 자료가 없습니다.')
