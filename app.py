@@ -182,7 +182,7 @@ def earnings_chart(current, prior, year):
                      'text':{'field':'금액','type':'quantitative','format':',.1f'}}}
     ]
     st.vega_lite_chart(pd.DataFrame(rows),
-        {'height':160,'layer':layers,'resolve':{'scale':{'color':'independent'}},'config':{'view':{'stroke':None},'background':'#fffef9'}},
+        {'height':200,'layer':layers,'resolve':{'scale':{'color':'independent'}},'config':{'view':{'stroke':None},'background':'#fffef9'}},
         use_container_width=True)
 
 def stock_evidence_charts(item):
