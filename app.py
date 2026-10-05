@@ -18,7 +18,10 @@ from predash.classroom import account_settings, connection_form
 from predash.macro import fetch_vix,relative,benchmark,MacroError
 from predash.analysis import review
 from predash.health import status as holding_status
-from predash.official import Official, DataError
+import predash.official as official_module
+if 'lookback_days' not in inspect.signature(official_module.Official.price_history).parameters:
+    official_module=importlib.reload(official_module)
+Official, DataError = official_module.Official, official_module.DataError
 import predash.trades as trade_module
 # Streamlit can keep the previous module in memory after updating app.py.
 # Reload only an older interface, before binding functions and exception types.
@@ -185,7 +188,108 @@ def earnings_chart(current, prior, year):
         {'height':200,'layer':layers,'resolve':{'scale':{'color':'independent'}},'config':{'view':{'stroke':None},'background':'#fffef9'}},
         use_container_width=True)
 
+
+def period_price_points(rows, code, today, period):
+    """Validate daily closes, then filter calendar periods without filling gaps."""
+    from calendar import monthrange
+    from math import isfinite
+    points={}
+    for row in rows:
+        if str(row.get('srtnCd','')).removeprefix('A').zfill(6)!=code:
+            continue
+        try:
+            day=datetime.strptime(str(row['basDt']),'%Y%m%d').date()
+            close=float(str(row['clpr']).replace(',',''))
+            if not isfinite(close) or close<=0:
+                raise ValueError
+        except (KeyError,TypeError,ValueError):
+            raise MarketDataError('시세 날짜·종가를 확인하지 못했습니다.') from None
+        if day>today:
+            continue
+        if day in points and points[day]!=close:
+            raise MarketDataError('같은 날짜의 종가가 서로 다릅니다.')
+        points[day]=close
+    if not points:
+        return [],None,False
+    end=max(points)
+    if period=='1주':
+        start=end-timedelta(days=7)
+    else:
+        months={'1개월':1,'3개월':3,'6개월':6,'1년':12}[period]
+        month_index=end.year*12+end.month-1-months
+        year,month=divmod(month_index,12)
+        month+=1
+        start=end.replace(year=year,month=month,day=min(end.day,monthrange(year,month)[1]))
+    selected=[{'날짜':day.isoformat(),'종가':points[day]} for day in sorted(points) if day>=start]
+    # Allow a weekend/holiday at the beginning; longer gaps are disclosed.
+    limited=(min(points)-start).days>7
+    return selected,start,limited
+
+def period_price_chart(item, context):
+    st.subheader('기간별 주식시세 변화')
+    code=item['code']
+    controls,refresh_control=st.columns([4,1],vertical_alignment='bottom')
+    period=controls.radio('조회 기간',['1주','1개월','3개월','6개월','1년'],
+        index=1,horizontal=True,key=f'price_period_{context}_{code}')
+    refresh=refresh_control.button('시세 새로고침',key=f'price_refresh_{context}_{code}',
+        use_container_width=True)
+    if refresh:
+        try:
+            with st.spinner('일별 시세를 조회합니다…'):
+                history=Official().price_history(code,datetime.now(ZoneInfo('Asia/Seoul')).date(),lookback_days=400)
+                # Validate before replacing previously retrieved observations.
+                period_price_points(history,code,datetime.now(ZoneInfo('Asia/Seoul')).date(),period)
+                item['price_rows']=history
+                item['price_history_days']=400
+                item['price_history_fetched']=datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M')
+        except (DataError,MarketDataError) as exc:
+            st.warning('시세 조회 보류 · '+str(exc))
+    try:
+        points,start,limited=period_price_points(item.get('price_rows',[]),code,
+            datetime.now(ZoneInfo('Asia/Seoul')).date(),period)
+    except MarketDataError as exc:
+        st.warning(str(exc));return
+    if len(points)<2:
+        reason=item.get('errors',{}).get('price')
+        st.info('가격 변화 그래프에 필요한 일별 종가가 부족합니다. 시세 새로고침을 눌러주세요.')
+        if reason:st.caption('시세 조회 보류 · '+reason)
+        return
+    first,last=points[0],points[-1]
+    change=last['종가']-first['종가']
+    pct=change/first['종가']*100
+    summary=st.columns(4)
+    summary[0].metric('최근 종가',f"{last['종가']:,.0f}원")
+    summary[1].metric('기간 등락률',f"{pct:+.2f}%",f"{change:+,.0f}원",delta_color='off')
+    summary[2].metric('최고 종가',f"{max(p['종가'] for p in points):,.0f}원")
+    summary[3].metric('최저 종가',f"{min(p['종가'] for p in points):,.0f}원")
+    chart_data=[{**p,'등락률':(p['종가']/first['종가']-1)*100} for p in points]
+    mode=st.radio('표시 기준',['주가 (원)','변화율 (%)'],horizontal=True,
+        key=f'price_mode_{context}_{code}')
+    field,unit=('종가','원') if mode=='주가 (원)' else ('등락률','%')
+    color='#214b3a'
+    spec={
+        'height':280,
+        'mark':{'type':'line','color':color,'strokeWidth':3,'point':len(points)<=10},
+        'encoding':{
+            'x':{'field':'날짜','type':'temporal','axis':{'title':None,'format':'%m/%d'}},
+            'y':{'field':field,'type':'quantitative','scale':{'zero':False},
+                 'axis':{'title':mode,'format':',.0f' if field=='종가' else '+.1f'}},
+            'tooltip':[{'field':'날짜','type':'temporal','format':'%Y-%m-%d'},
+                       {'field':'종가','type':'quantitative','title':'종가 (원)','format':',.0f'},
+                       {'field':'등락률','type':'quantitative','title':'첫 종가 대비 (%)','format':'+.2f'}]},
+        'config':{'view':{'stroke':None},'background':'#fffef9'}
+    }
+    st.vega_lite_chart(pd.DataFrame(chart_data),spec,use_container_width=True)
+    st.caption(f"공공데이터포털 · 실제 비교 {first['날짜']}~{last['날짜']} · {len(points)}거래일 · 첫 표시 종가 대비 등락률 · 최고·최저는 종가 기준")
+    today=datetime.now(ZoneInfo('Asia/Seoul')).date()
+    if (today-datetime.strptime(last['날짜'],'%Y-%m-%d').date()).days>5:
+        st.caption('최근 시세 기준일이 오래됐습니다. 시세 새로고침으로 확인하세요.')
+    if limited:
+        st.caption('선택 기간보다 조회된 자료가 짧아 실제 확보된 기간만 표시합니다. 시세 새로고침으로 1년 자료를 다시 조회할 수 있습니다.')
+    st.caption('일별 종가 · 장중 실시간 시세 아님 · 수정주가 미확인: 배당·분할·권리락은 등락률에 영향을 줄 수 있습니다.')
+
 def stock_evidence_charts(item):
+    if page!='관심종목':period_price_chart(item,'evidence')
     if item.get('relative'):
         st.subheader('내 종목은 시장 대비 얼마나 강한가? · '+str(item.get('benchmark','')))
         rows=[]
@@ -240,7 +344,8 @@ def watch_fetch(code,provider,today):
     result={'code':code,'name':st.session_state.get('watch_names',{}).get(code,code),'lamp':None,'metrics':None,'flow':None,'krx':None,'report':None,'errors':{},
             'fetched':datetime.now(ZoneInfo('Asia/Seoul')).strftime('%Y-%m-%d %H:%M')}
     try:
-        history=provider.price_history(code,today)
+        history=provider.price_history(code,today,lookback_days=400)
+        result['price_history_days']=400
         result['lamp']=stock_lamp(history,code,today)
         result['price_chart']=price_trend(history,code,today)
         result['benchmark']=benchmark(history,code)
@@ -724,6 +829,7 @@ elif page=='관심종목':
                 f"<div><small>일별 종가 · {price_date}</small><b>{price}</b><small><span class='pd-lamp {color}'></span>{state}</small></div>"
                 f"<div>{financial}</div><div><small>일별 수급 · {flow['date'] if flow else '보류'}</small>{flow_html}</div></div>"
                 f"<div class='pd-watch-bottom'><span>{averages}</span><span>자료 조회 {item['fetched']}</span><span>원문·세부 근거는 아래에서 확인</span></div></div>")
+            period_price_chart(item,'watch')
             with st.expander(f"{item['name']} · 판단 그래프와 상세 근거"):
                 stock_evidence_charts(item)
                 st.write(f"종가 기준 {price_date} · KRX 일별 거래 {item['krx']['date'] if item['krx'] else '조회 보류'}")
