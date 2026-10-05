@@ -5,6 +5,23 @@ from predash.kis import KIS, BrokerError
 
 def account_settings(mode=None):
     settings = st.session_state.get('classroom_credentials', {})
+    if not settings and not st.session_state.get('kis_secrets_disconnected'):
+        try:
+            selected = str(st.secrets.get('KIS_ENV', 'demo')).strip()
+            requested = mode or selected
+            prefix = 'KIS_DEMO_' if requested == 'demo' and (
+                selected != 'demo' or any(st.secrets.get('KIS_DEMO_' + key)
+                    for key in ('APP_KEY','APP_SECRET','CANO','ACNT_PRDT_CD'))
+            ) else 'KIS_'
+            if requested != selected and prefix == 'KIS_':
+                return dict(mode=requested, key='', secret='', cano='', product='')
+            names = dict(key='APP_KEY', secret='APP_SECRET', cano='CANO', product='ACNT_PRDT_CD')
+            return dict(mode=requested, **{
+                key: str(st.secrets.get(prefix + name, '')).strip()
+                for key, name in names.items()
+            })
+        except FileNotFoundError:
+            pass
     selected = mode or settings.get('mode', 'demo')
     if selected != settings.get('mode'):
         return dict(mode=selected, key='', secret='', cano='', product='')
@@ -17,14 +34,27 @@ def connection_form():
             st.session_state.pop(key, None)
     st.subheader('내 증권사 계좌 연결')
     st.caption('각자 Fork한 앱에서 본인 키를 입력하세요. 현재 접속 세션에서만 사용합니다.')
-    if st.session_state.get('classroom_credentials'):
-        st.success('계좌 연결됨 · ' + ('모의투자' if account_settings()['mode']=='demo' else '실전 조회'))
+    settings = account_settings()
+    if all(settings[k] for k in ('key','secret','cano','product')):
+        if not st.session_state.get('classroom_credentials'):
+            try:
+                KIS(settings=settings)
+            except BrokerError as error:
+                st.error(str(error))
+                return
+            st.caption('Streamlit Secrets 사용 · 내 계좌에서 새로고침하면 인증 후 잔고를 조회합니다.')
+        st.success('계좌 설정 준비됨 · ' + ('모의투자' if account_settings()['mode']=='demo' else '실전 조회'))
         if st.button('계좌 연결 해제'):
             authorized = st.session_state.get('authorized')
             st.session_state.clear()
+            st.session_state.kis_secrets_disconnected = True
             if authorized: st.session_state.authorized = True
             st.rerun()
         return
+    if st.session_state.get('kis_secrets_disconnected'):
+        if st.button('Secrets 계좌 다시 사용'):
+            st.session_state.pop('kis_secrets_disconnected', None)
+            st.rerun()
     with st.form('classroom_connection'):
         mode = st.radio('투자 환경', ['모의투자','실전 조회'], horizontal=True)
         key = st.text_input('App Key', type='password', key='class_key')
