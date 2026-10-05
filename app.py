@@ -129,6 +129,36 @@ def financial_comparison(m):
     st.dataframe(rows,hide_index=True,use_container_width=True)
     st.caption(f"OpenDART · {m['basis']} · 조회 {m['fetched']} · 단독 3개월은 동일 공시의 당기금액/전기 분기금액 사용 · 적자/0 기저 증가율 보류")
 
+def earnings_card(label, current, prior, year):
+    """Compare two amounts on a shared zero baseline, including losses."""
+    title=html.escape(label)
+    if current is None or prior is None:
+        return f"<div class='pd-earn-card'><b>{title}</b><p>전년·당년 비교 자료가 부족합니다.</p></div>"
+    delta=current-prior
+    if prior>0 and current>=0:
+        change=f"{delta/prior*100:+.1f}%"
+    elif prior<0 and current>0:change='흑자 전환'
+    elif prior>0 and current<0:change='적자 전환'
+    elif prior<0 and current<0:change='적자 축소' if delta>0 else '적자 확대' if delta<0 else '변동 없음'
+    else:change='증가' if delta>0 else '감소' if delta<0 else '변동 없음'
+    tone='up' if delta>0 else 'down' if delta<0 else 'flat'
+    low=min(0,current,prior);high=max(0,current,prior)
+    span=high-low or 1
+    low-=span*.18;high+=span*.28
+    y=lambda value:28+(high-value)/(high-low)*150
+    zero=y(0)
+    svg=[]
+    for tick in (low+(high-low)*.2,low+(high-low)*.6):
+        yy=y(tick)
+        svg.append(f"<line x1='58' y1='{yy:.1f}' x2='342' y2='{yy:.1f}' stroke='#e6e8dd'/><text x='50' y='{yy+4:.1f}' text-anchor='end' fill='#718075' font-size='11'>{tick:,.0f}</text>")
+    svg.append(f"<line x1='58' y1='{zero:.1f}' x2='342' y2='{zero:.1f}' stroke='#a2b1a3'/><text x='50' y='{zero+4:.1f}' text-anchor='end' fill='#718075' font-size='11'>0</text>")
+    for x,value,color,period in ((108,prior,'#a9b9ac',str(year-1)),(246,current,'#214b3a',str(year))):
+        yy=y(value);height=abs(zero-yy)
+        text_y=yy-9 if value>=0 else yy+18
+        svg.append(f"<rect x='{x}' y='{min(zero,yy):.1f}' width='58' height='{height:.1f}' rx='4' fill='{color}'><title>{period}년: {value:,.1f}억원</title></rect><text x='{x+29}' y='{text_y:.1f}' text-anchor='middle' fill='#183b30' font-size='14' font-weight='700'>{value:,.1f}</text><text x='{x+29}' y='212' text-anchor='middle' fill='#53665c' font-size='13'>{period}년</text>")
+    accessible=html.escape(f'{label}: {year-1}년 {prior:,.1f}억원, {year}년 {current:,.1f}억원')
+    return f"""<section class="pd-earn-card"><div class="pd-earn-head"><b>{title}<small>억원 · 같은 기간 비교</small></b><span class="pd-earn-badge {tone}">{change}</span></div><div class="pd-earn-value">{current:,.1f}<small>억원</small></div><div class="pd-earn-delta">전년 동기 대비 <strong>{delta:+,.1f}억원</strong></div><svg viewBox="0 0 380 232" role="img" aria-label="{accessible}" style="width:100%;display:block;font-family:inherit">{''.join(svg)}</svg></section>"""
+
 def stock_evidence_charts(item):
     if item.get('relative'):
         st.subheader('내 종목은 시장 대비 얼마나 강한가? · '+str(item.get('benchmark','')))
@@ -156,13 +186,16 @@ def stock_evidence_charts(item):
         st.subheader('전년 동기보다 실적이 개선됐는가?')
         m=item.get('metrics')
         if m:
-            labels=[('매출','revenue','prior_revenue'),('영업이익','profit','prior_profit')]
-            for label,current,prior in labels:
-                if m.get(prior) is not None:
-                    st.write(label+' · 억원')
-                    st.bar_chart([{'기간':'전년 동기','금액':m[prior]},{'기간':'현재 동기','금액':m[current]}],x='기간',y='금액',height=170,color='#214b3a')
-                else:st.caption(label+' 전년 동기 자료 부족')
-            st.caption(f"OpenDART · {m['year']}년 {m['quarter']}분기 누적 · {m['basis']} · 분기 단독 실적 아님")
+            st.html("""<style>
+.pd-earn-card{background:#fffef9;border:1px solid #dddccc;border-radius:10px;padding:18px 20px;margin:10px 0 14px}
+.pd-earn-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.pd-earn-head b{font-size:18px;color:#183b30}.pd-earn-head small{display:block;font-size:12px;font-weight:400;color:#718075;margin-top:3px}
+.pd-earn-badge{padding:5px 10px;border-radius:20px;font-size:13px;font-weight:700;white-space:nowrap}.pd-earn-badge.up{color:#21583c;background:#e4f0e6}.pd-earn-badge.down{color:#975135;background:#f6e9df}.pd-earn-badge.flat{color:#53665c;background:#edf0e8}
+.pd-earn-value{font-size:32px;font-weight:750;letter-spacing:-.04em;color:#183b30;margin-top:12px}.pd-earn-value small{font-size:14px;font-weight:400;margin-left:6px;color:#53665c}.pd-earn-delta{font-size:13px;color:#53665c;margin:2px 0 4px}
+</style>""")
+            for label,current,prior in [('매출','revenue','prior_revenue'),('영업이익','profit','prior_profit')]:
+                st.html(earnings_card(label,m.get(current),m.get(prior),m['year']))
+            st.caption(f"연한 녹색 = {m['year']-1}년 · 진한 녹색 = {m['year']}년 · 각 항목의 눈금은 별도입니다.")
+            st.caption(f"OpenDART · 1~{m['quarter']}분기 누적 · {m['basis']} · 분기 단독 실적 아님 · 적자·0 기저는 증가율 대신 상태 표시")
         else:st.info('동기 실적 자료가 없습니다.')
     with investor:
         st.subheader('누가 순매수를 이어가는가?')
