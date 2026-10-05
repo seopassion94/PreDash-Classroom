@@ -151,7 +151,7 @@ def earnings_chart(current, prior, year):
     rows=[{'기간':f'{year-1}년','금액':prior},{'기간':f'{year}년','금액':current}]
     encoding={
         'x':{'field':'기간','type':'nominal','sort':[f'{year-1}년',f'{year}년'],
-             'axis':{'title':None,'labelAngle':0,'labelFontSize':14}},
+             'axis':{'title':None,'labelAngle':0,'labelFontSize':12}},
         'y':{'field':'금액','type':'quantitative',
              'scale':{'zero':True,'nice':True,'padding':35},
              'axis':{'title':'금액 (억원)','format':',.0f','gridColor':'#e6e8dd'}},
@@ -163,26 +163,26 @@ def earnings_chart(current, prior, year):
     }
     layers=[
         # Offset side face adds depth while retaining the same amount scale.
-        {'mark':{'type':'bar','size':64,'xOffset':9,'cornerRadiusEnd':3},
+        {'mark':{'type':'bar','size':40,'xOffset':6,'cornerRadiusEnd':3},
          'encoding':{**encoding,'color':{'field':'기간','type':'nominal',
              'scale':{'domain':[f'{year-1}년',f'{year}년'],'range':['#718575','#102d22']},
              'legend':None}}},
-        {'mark':{'type':'bar','size':64,'cornerRadiusEnd':3},'encoding':encoding},
-        {'mark':{'type':'bar','size':12,'xOffset':-24,'color':'#ffffff',
+        {'mark':{'type':'bar','size':40,'cornerRadiusEnd':3},'encoding':encoding},
+        {'mark':{'type':'bar','size':8,'xOffset':-15,'color':'#ffffff',
                  'opacity':0.24,'cornerRadiusEnd':2},
          'encoding':{k:v for k,v in encoding.items() if k!='color'}},
         {'mark':{'type':'rule','color':'#a2b1a3'},'encoding':{'y':{'datum':0}}},
         {'transform':[{'filter':'datum.금액 >= 0'}],
-         'mark':{'type':'text','dy':-15,'fontSize':15,'fontWeight':'bold','color':'#183b30'},
+         'mark':{'type':'text','dy':-15,'fontSize':12,'fontWeight':'bold','color':'#183b30'},
          'encoding':{**{k:v for k,v in encoding.items() if k in ('x','y')},
                      'text':{'field':'금액','type':'quantitative','format':',.1f'}}},
         {'transform':[{'filter':'datum.금액 < 0'}],
-         'mark':{'type':'text','dy':14,'fontSize':15,'fontWeight':'bold','color':'#183b30'},
+         'mark':{'type':'text','dy':14,'fontSize':12,'fontWeight':'bold','color':'#183b30'},
          'encoding':{**{k:v for k,v in encoding.items() if k in ('x','y')},
                      'text':{'field':'금액','type':'quantitative','format':',.1f'}}}
     ]
     st.vega_lite_chart(pd.DataFrame(rows),
-        {'height':270,'layer':layers,'resolve':{'scale':{'color':'independent'}},'config':{'view':{'stroke':None},'background':'#fffef9'}},
+        {'height':160,'layer':layers,'resolve':{'scale':{'color':'independent'}},'config':{'view':{'stroke':None},'background':'#fffef9'}},
         use_container_width=True)
 
 def stock_evidence_charts(item):
@@ -213,14 +213,16 @@ def stock_evidence_charts(item):
         m=item.get('metrics')
         if m:
             st.html("""<style>
-.pd-earn-card{background:#fffef9;border:1px solid #dddccc;border-radius:10px;padding:18px 20px;margin:10px 0 14px}
-.pd-earn-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}.pd-earn-head b{font-size:18px;color:#183b30}.pd-earn-head small{display:block;font-size:12px;font-weight:400;color:#718075;margin-top:3px}
-.pd-earn-badge{padding:5px 10px;border-radius:20px;font-size:13px;font-weight:700;white-space:nowrap}.pd-earn-badge.up{color:#21583c;background:#e4f0e6}.pd-earn-badge.down{color:#975135;background:#f6e9df}.pd-earn-badge.flat{color:#53665c;background:#edf0e8}
-.pd-earn-value{font-size:32px;font-weight:750;letter-spacing:-.04em;color:#183b30;margin-top:12px}.pd-earn-value small{font-size:14px;font-weight:400;margin-left:6px;color:#53665c}.pd-earn-delta{font-size:13px;color:#53665c;margin:2px 0 4px}
+.pd-earn-card{background:#fffef9;border:1px solid #dddccc;border-radius:8px;padding:10px 12px;margin:4px 0 6px}
+.pd-earn-head{display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:5px}.pd-earn-head b{font-size:16px;color:#183b30}.pd-earn-head small{display:block;font-size:12px;font-weight:400;color:#718075;margin-top:3px}
+.pd-earn-badge{padding:3px 7px;border-radius:20px;font-size:11px;font-weight:700;white-space:nowrap}.pd-earn-badge.up{color:#21583c;background:#e4f0e6}.pd-earn-badge.down{color:#975135;background:#f6e9df}.pd-earn-badge.flat{color:#53665c;background:#edf0e8}
+.pd-earn-value{font-size:24px;font-weight:750;letter-spacing:-.04em;color:#183b30;margin-top:5px}.pd-earn-value small{font-size:14px;font-weight:400;margin-left:6px;color:#53665c}.pd-earn-delta{font-size:11px;color:#53665c;margin:2px 0 4px}
 </style>""")
-            for label,current,prior in [('매출','revenue','prior_revenue'),('영업이익','profit','prior_profit')]:
-                st.html(earnings_card(label,m.get(current),m.get(prior),m['year']))
-                earnings_chart(m.get(current),m.get(prior),m['year'])
+            earnings_columns=st.columns(2,gap='small')
+            for column,(label,current,prior) in zip(earnings_columns,[('매출','revenue','prior_revenue'),('영업이익','profit','prior_profit')]):
+                with column:
+                    st.html(earnings_card(label,m.get(current),m.get(prior),m['year']))
+                    earnings_chart(m.get(current),m.get(prior),m['year'])
             st.caption(f"연한 녹색 = {m['year']-1}년 · 진한 녹색 = {m['year']}년 · 각 항목의 눈금은 별도입니다.")
             st.caption(f"OpenDART · 1~{m['quarter']}분기 누적 · {m['basis']} · 분기 단독 실적 아님 · 적자·0 기저는 증가율 대신 상태 표시")
         else:st.info('동기 실적 자료가 없습니다.')
