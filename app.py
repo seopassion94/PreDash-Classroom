@@ -194,6 +194,7 @@ def period_price_points(rows, code, today, period):
     from calendar import monthrange
     from math import isfinite
     points={}
+    volumes={}
     for row in rows:
         if str(row.get('srtnCd','')).removeprefix('A').zfill(6)!=code:
             continue
@@ -209,6 +210,18 @@ def period_price_points(rows, code, today, period):
         if day in points and points[day]!=close:
             raise MarketDataError('같은 날짜의 종가가 서로 다릅니다.')
         points[day]=close
+        raw_volume=row.get('trqu')
+        try:
+            volume=float(str(raw_volume).replace(',',''))
+            if not isfinite(volume) or volume<0 or not volume.is_integer():
+                raise ValueError
+            volume=int(volume)
+        except (TypeError,ValueError):
+            volume=None
+        if day in volumes and volumes[day] is not None and volume is not None and volumes[day]!=volume:
+            raise MarketDataError('같은 날짜의 거래량이 서로 다릅니다.')
+        if day not in volumes or volumes[day] is None:
+            volumes[day]=volume
     if not points:
         return [],None,False
     end=max(points)
@@ -220,7 +233,16 @@ def period_price_points(rows, code, today, period):
         year,month=divmod(month_index,12)
         month+=1
         start=end.replace(year=year,month=month,day=min(end.day,monthrange(year,month)[1]))
-    selected=[{'날짜':day.isoformat(),'종가':points[day]} for day in sorted(points) if day>=start]
+    ordered=sorted(points)
+    selected=[]
+    for index,day in enumerate(ordered):
+        if day<start:continue
+        previous=points[ordered[index-1]] if index else None
+        direction='상승' if previous is not None and points[day]>previous else '하락' if previous is not None and points[day]<previous else '보합·비교 없음'
+        window=[volumes[d] for d in ordered[max(0,index-19):index+1]]
+        average=sum(window)/20 if len(window)==20 and all(v is not None for v in window) else None
+        selected.append({'날짜':day.isoformat(),'종가':points[day],
+            '거래량':volumes[day],'20일 평균 거래량':average,'가격 방향':direction})
     # Allow a weekend/holiday at the beginning; longer gaps are disclosed.
     limited=(min(points)-start).days>7
     return selected,start,limited
@@ -279,7 +301,46 @@ def period_price_chart(item, context):
                        {'field':'등락률','type':'quantitative','title':'첫 종가 대비 (%)','format':'+.2f'}]},
         'config':{'view':{'stroke':None},'background':'#fffef9'}
     }
-    st.vega_lite_chart(pd.DataFrame(chart_data),spec,use_container_width=True)
+    if any(p['거래량'] is not None for p in points):
+        volume_encoding={
+            'x':{'field':'날짜','type':'temporal','axis':{'title':None,'format':'%m/%d'}},
+            'y':{'field':'거래량','type':'quantitative','scale':{'zero':True},
+                 'axis':{'title':'거래량 (주)','format':'~s'}},
+            'color':{'field':'가격 방향','type':'nominal',
+                     'scale':{'domain':['상승','하락','보합·비교 없음'],
+                              'range':['#b63f3f','#527dad','#9aa598']},'legend':None},
+            'tooltip':[{'field':'날짜','type':'temporal','format':'%Y-%m-%d'},
+                       {'field':'거래량','type':'quantitative','title':'거래량 (주)','format':',.0f'},
+                       {'field':'20일 평균 거래량','type':'quantitative','title':'20일 평균 (주)','format':',.0f'},
+                       {'field':'가격 방향','type':'nominal'}]
+        }
+        volume_spec={'height':130,'title':{'text':'거래량','anchor':'start','color':'#183b30'},
+            'layer':[
+                {'transform':[{'filter':'isValid(datum.거래량)'}],
+                 'mark':{'type':'bar','opacity':0.8},'encoding':volume_encoding},
+                {'mark':{'type':'line','color':'#a68137','strokeWidth':2},
+                 'encoding':{'x':volume_encoding['x'],
+                     'y':{'field':'20일 평균 거래량','type':'quantitative'},
+                     'tooltip':[{'field':'날짜','type':'temporal','format':'%Y-%m-%d'},
+                         {'field':'20일 평균 거래량','type':'quantitative','format':',.0f'}]}}
+            ]}
+        chart_config=spec.pop('config')
+        spec['encoding']['x']['axis']['labels']=False
+        combined={'vconcat':[spec,volume_spec],'spacing':8,
+                  'resolve':{'scale':{'x':'shared'}},'config':chart_config}
+        st.vega_lite_chart(pd.DataFrame(chart_data),combined,use_container_width=True)
+        volume_summary=st.columns(3)
+        volume_summary[0].metric('최근 거래량',f"{last['거래량']:,.0f}주" if last['거래량'] is not None else '자료 없음')
+        avg=last['20일 평균 거래량']
+        volume_summary[1].metric('20일 평균 거래량',f"{avg:,.0f}주" if avg is not None else '자료 부족')
+        ratio=last['거래량']/avg if last['거래량'] is not None and avg is not None and avg>0 else None
+        volume_summary[2].metric('20일 평균 대비',f"{ratio:.2f}배" if ratio is not None else '산정 보류')
+        st.caption('거래량: 빨강 = 전 관측일 종가 대비 상승 · 파랑 = 하락 · 회색 = 보합/비교 없음 · 금색 선 = 당일 포함 20거래 관측일 평균')
+        if any(p['거래량'] is None for p in points):
+            st.caption('거래량이 없는 날짜는 빈칸으로 표시하며 0으로 처리하지 않습니다.')
+    else:
+        st.vega_lite_chart(pd.DataFrame(chart_data),spec,use_container_width=True)
+        st.info('거래량 자료가 없습니다. 시세 새로고침을 눌러주세요.')
     st.caption(f"공공데이터포털 · 실제 비교 {first['날짜']}~{last['날짜']} · {len(points)}거래일 · 첫 표시 종가 대비 등락률 · 최고·최저는 종가 기준")
     today=datetime.now(ZoneInfo('Asia/Seoul')).date()
     if (today-datetime.strptime(last['날짜'],'%Y-%m-%d').date()).days>5:
