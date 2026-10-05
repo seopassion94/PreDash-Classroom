@@ -188,12 +188,14 @@ class Official:
                 raise DataError("시세 응답 형식 오류") from None
         raise DataError("최근 10일 안에 시세가 없습니다.")
 
-    def price_history(self, code, asof):
-        """Fetch enough dated daily closes for the 10/20-session lamp in one request."""
+    def price_history(self, code, asof, lookback_days=50):
+        """Fetch bounded daily closes, retaining the short default for existing callers."""
         if not re.fullmatch(r"[0-9]{6}",code):
             raise DataError("종목코드는 숫자 6자리여야 합니다.")
-        params={"serviceKey":self.price_key,"resultType":"json","numOfRows":100,
-                "likeSrtnCd":code,"beginBasDt":(asof-timedelta(days=50)).strftime('%Y%m%d'),
+        if not isinstance(lookback_days,int) or not 1<=lookback_days<=400:
+            raise DataError("시세 조회기간은 1~400일이어야 합니다.")
+        params={"serviceKey":self.price_key,"resultType":"json","numOfRows":max(100,lookback_days+1),
+                "likeSrtnCd":code,"beginBasDt":(asof-timedelta(days=lookback_days)).strftime('%Y%m%d'),
                 "endBasDt":(asof+timedelta(days=1)).strftime('%Y%m%d')}
         try:
             response=get("https://apis.data.go.kr/1160100/service/GetStockSecuritiesInfoService/getStockPriceInfo",params).json()["response"]
