@@ -145,7 +145,7 @@ def earnings_card(label, current, prior, year):
     return f"""<section class="pd-earn-card"><div class="pd-earn-head"><b>{title}<small>억원 · 같은 기간 비교</small></b><span class="pd-earn-badge {tone}">{change}</span></div><div class="pd-earn-value">{current:,.1f}<small>억원</small></div><div class="pd-earn-delta">전년 동기 대비 <strong>{delta:+,.1f}억원</strong></div></section>"""
 
 def earnings_chart(current, prior, year):
-    """Render the actual amounts as an interactive signed bar chart."""
+    """Render signed amounts with layered depth and face highlights."""
     if current is None or prior is None:
         return
     rows=[{'기간':f'{year-1}년','금액':prior},{'기간':f'{year}년','금액':current}]
@@ -162,10 +162,18 @@ def earnings_chart(current, prior, year):
                    {'field':'금액','type':'quantitative','title':'금액 (억원)','format':',.1f'}]
     }
     layers=[
-        {'mark':{'type':'bar','size':64,'cornerRadiusEnd':4},'encoding':encoding},
+        # Offset side face adds depth while retaining the same amount scale.
+        {'mark':{'type':'bar','size':64,'xOffset':9,'cornerRadiusEnd':3},
+         'encoding':{**encoding,'color':{'field':'기간','type':'nominal',
+             'scale':{'domain':[f'{year-1}년',f'{year}년'],'range':['#718575','#102d22']},
+             'legend':None}}},
+        {'mark':{'type':'bar','size':64,'cornerRadiusEnd':3},'encoding':encoding},
+        {'mark':{'type':'bar','size':12,'xOffset':-24,'color':'#ffffff',
+                 'opacity':0.24,'cornerRadiusEnd':2},
+         'encoding':{k:v for k,v in encoding.items() if k!='color'}},
         {'mark':{'type':'rule','color':'#a2b1a3'},'encoding':{'y':{'datum':0}}},
         {'transform':[{'filter':'datum.금액 >= 0'}],
-         'mark':{'type':'text','dy':-12,'fontSize':15,'fontWeight':'bold','color':'#183b30'},
+         'mark':{'type':'text','dy':-15,'fontSize':15,'fontWeight':'bold','color':'#183b30'},
          'encoding':{**{k:v for k,v in encoding.items() if k in ('x','y')},
                      'text':{'field':'금액','type':'quantitative','format':',.1f'}}},
         {'transform':[{'filter':'datum.금액 < 0'}],
@@ -174,7 +182,7 @@ def earnings_chart(current, prior, year):
                      'text':{'field':'금액','type':'quantitative','format':',.1f'}}}
     ]
     st.vega_lite_chart(pd.DataFrame(rows),
-        {'height':250,'layer':layers,'config':{'view':{'stroke':None},'background':'#fffef9'}},
+        {'height':270,'layer':layers,'resolve':{'scale':{'color':'independent'}},'config':{'view':{'stroke':None},'background':'#fffef9'}},
         use_container_width=True)
 
 def stock_evidence_charts(item):
