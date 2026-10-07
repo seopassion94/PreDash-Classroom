@@ -477,6 +477,20 @@ with st.sidebar:
         format_func=lambda item:{'오늘의 점검':'01  투자 대시보드','내 계좌':'04  내 계좌 · 보유종목',
             '관심종목':'02  관심종목 분석','돌파·수급 검색':'02-1  120일선 · 동반매수','매매 습관':'07  매매 기록 · 습관',
             '모의투자':'05  모의투자 계좌','매매 연습':'06  매매 연습','연결 설정':'08  데이터 연결','투자 근거':'03  투자 근거 · 비교 차트'}[item])
+    st.divider()
+    large_text=st.toggle('글자 크게 보기',value=st.query_params.get('text','')=='large')
+    if large_text:st.query_params['text']='large'
+    elif 'text' in st.query_params:del st.query_params['text']
+    st.caption('UI 2.8 · 본인 계정 · 조회 전용')
+    if password and st.button('로그아웃'):
+        st.session_state.clear();st.rerun()
+
+
+if large_text:
+    st.html('<style>.stApp p,.stApp li{font-size:20px}.pd-watch small,.pd-card-sub,.pd-card-note,.pd-card-body small,.pd-holding-head small{font-size:18px}.pd-v-table,.pd-v-empty,.pd-v-notice,.pd-v-company{font-size:18px}.pd-v-note,.pd-v-legend,.pd-v-table small,.pd-v-notice small,.pd-v-company small{font-size:16px}</style>')
+mode_label='모의투자' if page=='모의투자' else ('매매 연습' if page=='매매 연습' else '실전 조회' if account_settings()['mode']=='real' else '개인 분석')
+st.html(f"<div class='pd-toolbar'><span class='pd-toolbar-title'>PreDash / {html.escape(page)}</span><div class='pd-badges'><span class='pd-badge'>{html.escape(mode_label)}</span><span class='pd-badge gold'>조회 전용</span><span class='pd-badge'>UI 2.8</span></div></div>")
+
 if page == '돌파·수급 검색':
     from predash.breakout_scan import scan
     st.title('코스닥 120일선 돌파 · 외국인·기관 동반 순매수')
@@ -501,20 +515,6 @@ if page == '돌파·수급 검색':
         except (ValueError, KeyError, UnicodeError) as exc:
             st.error(f'CSV 자료 확인 필요: {exc}')
     st.stop()
-
-    st.divider()
-    large_text=st.toggle('글자 크게 보기',value=st.query_params.get('text','')=='large')
-    if large_text:st.query_params['text']='large'
-    elif 'text' in st.query_params:del st.query_params['text']
-    st.caption('UI 2.8 · 본인 계정 · 조회 전용')
-    if password and st.button('로그아웃'):
-        st.session_state.clear();st.rerun()
-
-
-if large_text:
-    st.html('<style>.stApp p,.stApp li{font-size:20px}.pd-watch small,.pd-card-sub,.pd-card-note,.pd-card-body small,.pd-holding-head small{font-size:18px}.pd-v-table,.pd-v-empty,.pd-v-notice,.pd-v-company{font-size:18px}.pd-v-note,.pd-v-legend,.pd-v-table small,.pd-v-notice small,.pd-v-company small{font-size:16px}</style>')
-mode_label='모의투자' if page=='모의투자' else ('매매 연습' if page=='매매 연습' else '실전 조회' if account_settings()['mode']=='real' else '개인 분석')
-st.html(f"<div class='pd-toolbar'><span class='pd-toolbar-title'>PreDash / {html.escape(page)}</span><div class='pd-badges'><span class='pd-badge'>{html.escape(mode_label)}</span><span class='pd-badge gold'>조회 전용</span><span class='pd-badge'>UI 2.8</span></div></div>")
 
 @st.cache_data(ttl=1800,show_spinner=False)
 def cached_vix(day):return fetch_vix(day)
