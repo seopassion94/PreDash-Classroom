@@ -493,14 +493,14 @@ st.html(f"<div class='pd-toolbar'><span class='pd-toolbar-title'>PreDash / {html
 
 if page == '돌파·수급 검색':
     from predash.breakout_scan import scan
-    st.title('코스닥 120일선 돌파 · 외국인·기관 동반 순매수')
+    st.title('코스피 120일선 돌파 · 외국인·기관 동반 순매수')
     st.caption('일별 종가 기준 신규 상향 돌파. 외국인·기관 순매수량은 동일 종목·동일 거래일의 주식 수 기준이어야 합니다.')
-    st.info('현재 전체 코스닥 종목의 검증된 실시간 수급 API가 연결되지 않아 CSV 자료로 정확하게 검색합니다. 예시 종목을 실제 결과로 표시하지 않습니다.')
+    st.info('현재 전체 코스피 종목의 검증된 실시간 수급 API가 연결되지 않아 CSV 자료로 정확하게 검색합니다. 예시 종목을 실제 결과로 표시하지 않습니다.')
     multiple = st.slider('전 20거래일 평균 대비 최소 거래량 배율', 1.0, 5.0, 1.5, 0.1)
     uploaded = st.file_uploader('일별 시세·투자자 순매수 CSV 업로드 (최소 121거래일)', type=['csv'], key='breakout_csv')
     with st.expander('CSV 형식 안내'):
-        st.code('date,code,name,market,close,volume,foreign_net,institution_net\\n2026-10-07,000000,예시종목,KOSDAQ,10000,500000,12000,5000', language='text')
-        st.caption('날짜별·종목별 1행. 외국인/기관 순매수는 매수 수량 − 매도 수량(주)이며 금액과 혼합하면 안 됩니다. 시장 구분 열이 없으면 업로드 파일이 코스닥 종목만 포함해야 합니다.')
+        st.code('date,code,name,market,close,volume,foreign_net,institution_net\\n2026-10-07,000000,예시종목,KOSPI,10000,500000,12000,5000', language='text')
+        st.caption('날짜별·종목별 1행. 외국인/기관 순매수는 매수 수량 − 매도 수량(주)이며 금액과 혼합하면 안 됩니다. 시장 구분 열이 없으면 업로드 파일이 코스피 종목만 포함해야 합니다.')
     if uploaded is not None:
         try:
             data = pd.read_csv(uploaded, dtype={'code':str}, encoding='utf-8-sig')
@@ -511,7 +511,7 @@ if page == '돌파·수급 검색':
             else:
                 st.metric('동시 충족 종목', f'{len(matches)}개')
                 st.dataframe(matches, use_container_width=True, hide_index=True)
-                st.download_button('검색 결과 CSV 저장', matches.to_csv(index=False).encode('utf-8-sig'), 'kosdaq_breakout.csv', 'text/csv')
+                st.download_button('검색 결과 CSV 저장', matches.to_csv(index=False).encode('utf-8-sig'), 'kospi_breakout.csv', 'text/csv')
         except (ValueError, KeyError, UnicodeError) as exc:
             st.error(f'CSV 자료 확인 필요: {exc}')
     st.stop()
