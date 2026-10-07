@@ -1,4 +1,4 @@
-"""KOSDAQ 120-session breakout and investor net-buy scanner (CSV input)."""
+"""KOSPI 120-session breakout and investor net-buy scanner (CSV input)."""
 import pandas as pd
 
 REQUIRED = {"date", "code", "name", "close", "volume", "foreign_net", "institution_net"}
@@ -13,7 +13,7 @@ def scan(prices, volume_multiple=1.5):
     for col in ("close", "volume", "foreign_net", "institution_net"):
         df[col] = pd.to_numeric(df[col], errors="coerce")
     if "market" in df.columns:
-        df = df[df["market"].astype(str).str.upper().isin(["KOSDAQ", "코스닥"])]
+        df = df[df["market"].astype(str).str.upper().isin(["KOSPI", "코스피"])]
     df = df.dropna(subset=["date", "close", "volume", "foreign_net", "institution_net"])
     df = df.sort_values(["code", "date"]).drop_duplicates(["code", "date"], keep="last")
     group = df.groupby("code", sort=False)
