@@ -82,7 +82,7 @@ def confirmed_joint_buy(candidates, day, investor_lookup):
                 continue
             if foreign > 0 and institution > 0:
                 found.append({"기준일":day.isoformat(), "종목코드":code, "종목명":row.name,
-                    "종가":row.close, "괴리율(%)":row._asdict().get("_", None),
+                    "종가":row.close, "괴리율(%)":round(100 * (row.close / row.ma120 - 1), 2),
                     "외국인 순매수(주)":foreign, "기관 순매수(주)":institution,
                     "거래량배율":round(row.volume / row.volume20, 2)})
         except Exception:
