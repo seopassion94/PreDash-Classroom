@@ -1,6 +1,8 @@
 """KOSPI breakout discovery using approved KRX EOD data and KIS investor flow."""
 from datetime import date, timedelta
 import requests
+import re
+import time
 import pandas as pd
 
 class ScanError(RuntimeError):
@@ -20,18 +22,21 @@ def load_krx_history(key, asof=None, calendar_days=210):
         try:
             response = session.get("https://data-dbg.krx.co.kr/svc/apis/sto/stk_bydd_trd",
                 headers={"AUTH_KEY": key}, params={"basDd": day.strftime("%Y%m%d")}, timeout=(5, 15))
-            response.raise_for_status()
+            if response.status_code != 200:
+                raise ScanError(f'KRX HTTP {response.status_code} · 요청일 {day:%Y-%m-%d} · 401/403 인증·승인, 429 호출 한도 확인')
             payload = response.json()
             rows = payload.get("OutBlock_1")
             if not isinstance(rows, list):
                 raise ScanError("KRX 응답 형식 또는 서비스 이용 승인을 확인하세요.")
         except (requests.RequestException, ValueError) as exc:
-            raise ScanError("KRX 일별시세 호출 실패: 서비스 승인·인증키·호출 한도를 확인하세요.") from exc
+            raise ScanError(f"KRX 통신/응답 실패 · 요청일 {day:%Y-%m-%d} · {type(exc).__name__}") from exc
         if not rows:
             continue
         successful_days += 1
+        time.sleep(0.12)
         for item in rows:
-            code = str(item.get("ISU_SRT_CD", "")).strip().zfill(6)
+            raw_code = str(item.get("ISU_SRT_CD") or item.get("ISU_CD") or "").strip()
+            code = raw_code.zfill(6) if re.fullmatch(r"\d{1,6}", raw_code) else ""
             if not (len(code) == 6 and code.isdigit()):
                 continue
             try:
@@ -41,7 +46,7 @@ def load_krx_history(key, asof=None, calendar_days=210):
                 continue
             if close <= 0 or volume < 0:
                 continue
-            records.append({"date":day, "code":code, "name":item.get("ISU_ABBRV",code),
+            records.append({"date":day, "code":code, "name":item.get("ISU_ABBRV") or item.get("ISU_NM") or code,
                             "close":close, "volume":volume})
     if successful_days < 121:
         raise ScanError(f"KRX 유효 거래일 {successful_days}일: 120일선 신규 돌파 판정에 최소 121거래일이 필요합니다.")
