@@ -491,29 +491,46 @@ if large_text:
 mode_label='모의투자' if page=='모의투자' else ('매매 연습' if page=='매매 연습' else '실전 조회' if account_settings()['mode']=='real' else '개인 분석')
 st.html(f"<div class='pd-toolbar'><span class='pd-toolbar-title'>PreDash / {html.escape(page)}</span><div class='pd-badges'><span class='pd-badge'>{html.escape(mode_label)}</span><span class='pd-badge gold'>조회 전용</span><span class='pd-badge'>UI 2.8</span></div></div>")
 
+@st.cache_data(ttl=60*60*12, show_spinner=False)
+def cached_kospi_history(key, asof):
+    from predash.auto_breakout import load_krx_history
+    return load_krx_history(key, asof)
+
 if page == '돌파·수급 검색':
-    from predash.breakout_scan import scan
+    from predash.auto_breakout import breakout_candidates, confirmed_joint_buy, ScanError
     st.title('코스피 120일선 돌파 · 외국인·기관 동반 순매수')
-    st.caption('일별 종가 기준 신규 상향 돌파. 외국인·기관 순매수량은 동일 종목·동일 거래일의 주식 수 기준이어야 합니다.')
-    st.info('현재 전체 코스피 종목의 검증된 실시간 수급 API가 연결되지 않아 CSV 자료로 정확하게 검색합니다. 예시 종목을 실제 결과로 표시하지 않습니다.')
-    multiple = st.slider('전 20거래일 평균 대비 최소 거래량 배율', 1.0, 5.0, 1.5, 0.1)
-    uploaded = st.file_uploader('일별 시세·투자자 순매수 CSV 업로드 (최소 121거래일)', type=['csv'], key='breakout_csv')
-    with st.expander('CSV 형식 안내'):
-        st.code('date,code,name,market,close,volume,foreign_net,institution_net\\n2026-10-07,000000,예시종목,KOSPI,10000,500000,12000,5000', language='text')
-        st.caption('날짜별·종목별 1행. 외국인/기관 순매수는 매수 수량 − 매도 수량(주)이며 금액과 혼합하면 안 됩니다. 시장 구분 열이 없으면 업로드 파일이 코스피 종목만 포함해야 합니다.')
-    if uploaded is not None:
-        try:
-            data = pd.read_csv(uploaded, dtype={'code':str}, encoding='utf-8-sig')
-            latest, matches = scan(data, multiple)
-            st.caption(f'검색 기준일: {latest:%Y-%m-%d} · 업로드 자료 기준 · 종가 확정 여부는 원본에서 확인')
-            if matches.empty:
-                st.warning('조건에 맞는 종목이 없습니다. 자료 기간·수급 단위·최신 거래일을 확인하세요.')
-            else:
-                st.metric('동시 충족 종목', f'{len(matches)}개')
-                st.dataframe(matches, use_container_width=True, hide_index=True)
-                st.download_button('검색 결과 CSV 저장', matches.to_csv(index=False).encode('utf-8-sig'), 'kospi_breakout.csv', 'text/csv')
-        except (ValueError, KeyError, UnicodeError) as exc:
-            st.error(f'CSV 자료 확인 필요: {exc}')
+    st.caption('KRX 전 종목 일별 종가로 돌파 종목을 찾고, KIS에서 해당 종목의 외국인·기관 당일 순매수를 검증합니다.')
+    multiple = st.slider('전 20거래일 평균 대비 최소 거래량 배율', 1.0, 5.0, 1.5, 0.1, key='auto_volume')
+    st.caption('KRX 일별 데이터는 장 마감 직후 미제공될 수 있습니다. KRX/KIS의 수급 기준일이 일치할 때만 결과를 표시합니다.')
+    if st.button('코스피 전 종목 자동 검색', type='primary', key='run_kospi_scan'):
+        key = os.getenv('KRX_AUTH_KEY', '').strip()
+        if not key:
+            st.error('Streamlit Secrets의 KRX_AUTH_KEY를 확인하세요.')
+        else:
+            try:
+                with st.spinner('KRX 과거 일별시세 수집 및 120일선 분석 중 · 첫 실행은 시간이 걸립니다'):
+                    history = cached_kospi_history(key, datetime.now(ZoneInfo('Asia/Seoul')).date())
+                    day, candidates = breakout_candidates(history, multiple)
+                st.caption(f'KRX 시세 기준일 {day:%Y-%m-%d} · 120일선/거래량 조건 충족 {len(candidates)}종목')
+                if candidates.empty:
+                    st.info('120일선 돌파 및 거래량 조건에 맞는 종목이 없습니다.')
+                else:
+                    with st.spinner('KIS 외국인·기관 수급 확인 중'):
+                        client = kis_client()
+                        matches, errors = confirmed_joint_buy(candidates, day, client.investor_flow)
+                    if matches:
+                        result = pd.DataFrame(matches).sort_values('거래량배율', ascending=False)
+                        st.metric('외국인·기관 동반 순매수', f'{len(result)}종목')
+                        st.dataframe(result, use_container_width=True, hide_index=True)
+                        st.download_button('검색 결과 저장', result.to_csv(index=False).encode('utf-8-sig'),
+                                           'kospi_breakout.csv', 'text/csv')
+                    else:
+                        st.info('검증된 동반 순매수 종목이 없습니다. 수급 미확인 종목은 결과에서 제외됩니다.')
+                    if errors:
+                        with st.expander(f'수급 검증 보류 {len(errors)}종목'):
+                            st.write(errors)
+            except (ScanError, BrokerError, ValueError) as exc:
+                st.error(str(exc))
     st.stop()
 
 @st.cache_data(ttl=1800,show_spinner=False)
