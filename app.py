@@ -472,10 +472,10 @@ with st.sidebar:
     st.link_button('교육자료', 'https://stock-dash-11a.streamlit.app/')
     st.link_button('소통 게시판', 'https://etf2x.com/learn/live')
     st.html('<div class="pd-brand-note">나의 투자 흐름을 읽는 공간</div><div class="pd-side-label">투자 워크스페이스</div>')
-    page=st.radio('메뉴',['오늘의 점검','관심종목','돌파·수급 검색','투자 근거','내 계좌','모의투자','매매 연습','매매 습관','연결 설정'],label_visibility='collapsed',key='navigation',
+    page=st.radio('메뉴',['오늘의 점검','관심종목','매수 신호 점수표','돌파·수급 검색','투자 근거','내 계좌','모의투자','매매 연습','매매 습관','연결 설정'],label_visibility='collapsed',key='navigation',
         index=0 if all(account_settings()[k] for k in ('key','secret','cano','product')) else 1,
         format_func=lambda item:{'오늘의 점검':'01  투자 대시보드','내 계좌':'04  내 계좌 · 보유종목',
-            '관심종목':'02  관심종목 분석','돌파·수급 검색':'02-1  120일선 · 동반매수','매매 습관':'07  매매 기록 · 습관',
+            '관심종목':'02  관심종목 분석','매수 신호 점수표':'02-2  매수 신호 점수표','돌파·수급 검색':'02-1  120일선 · 동반매수','매매 습관':'07  매매 기록 · 습관',
             '모의투자':'05  모의투자 계좌','매매 연습':'06  매매 연습','연결 설정':'08  데이터 연결','투자 근거':'03  투자 근거 · 비교 차트'}[item])
     st.divider()
     large_text=st.toggle('글자 크게 보기',value=st.query_params.get('text','')=='large')
@@ -495,6 +495,10 @@ st.html(f"<div class='pd-toolbar'><span class='pd-toolbar-title'>PreDash / {html
 def cached_kospi_history(key, asof):
     from predash.auto_breakout import load_krx_history
     return load_krx_history(key, asof)
+
+if page == '매수 신호 점수표':
+    from predash.buy_signals import render as render_buy_signals
+    render_buy_signals()
 
 if page == '돌파·수급 검색':
     from predash.auto_breakout import breakout_candidates, confirmed_joint_buy, ScanError
