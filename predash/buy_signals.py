@@ -98,8 +98,10 @@ def render(fetcher=None):
     names=st.session_state.get("watch_names",{})
     choices={c:f"{names.get(c,c)} · {c}" for c in codes}
     selected=st.selectbox("관심종목 선택",["직접 입력"]+list(choices),format_func=lambda x:choices.get(x,x))
-    manual=st.text_input("6자리 종목코드",value="" if selected=="직접 입력" else selected,key="auto_signal_code")
-    code=selected if selected!="직접 입력" else manual.strip()
+    if selected=="직접 입력":
+        code=st.text_input("6자리 종목코드",key="auto_signal_code",placeholder="005930").strip()
+    else:
+        code=selected
     if not re.fullmatch(r"\d{6}",code):
         st.info("국내 주식의 숫자 6자리 종목코드를 입력하세요.")
         return
