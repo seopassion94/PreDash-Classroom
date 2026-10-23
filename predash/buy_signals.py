@@ -91,29 +91,28 @@ def evaluate(code, item, asof=None):
     verified=sum(x["배점"] for x in result if x["상태"]!="미확인")
     return result,score,verified,latest
 
-def render():
+def render(fetcher=None):
     st.title("매수 신호 점수표 · 자동 조회")
     st.caption("국내 주식 6자리 종목코드 · 공식 일별 종가/거래량, KIS 일별 수급, DART 실적 자료 기준")
     codes=st.session_state.get("watch_codes",[])
     names=st.session_state.get("watch_names",{})
     choices={c:f"{names.get(c,c)} · {c}" for c in codes}
-    default=next(iter(choices),"")
     selected=st.selectbox("관심종목 선택",["직접 입력"]+list(choices),format_func=lambda x:choices.get(x,x))
-    manual=st.text_input("6자리 종목코드",value=default if selected=="직접 입력" else selected,key="auto_signal_code")
+    manual=st.text_input("6자리 종목코드",value="" if selected=="직접 입력" else selected,key="auto_signal_code")
     code=selected if selected!="직접 입력" else manual.strip()
     if not re.fullmatch(r"\d{6}",code):
         st.info("국내 주식의 숫자 6자리 종목코드를 입력하세요.")
         return
     key="auto_buy_result_"+code
     if st.button("공식 데이터 조회 및 점수 계산",type="primary"):
-        if not st.session_state.get("auto_signal_fetcher"):
-            st.info("일별 데이터와 실적·수급을 조회합니다. 인증키 미설정 항목은 미확인으로 표시됩니다.")
         try:
             from predash.official import Official
             now=datetime.now(ZoneInfo("Asia/Seoul")).date()
-            item=dict(st.session_state.get("watch_results",{}).get(code,{}) or {})
-            item["price_rows"]=Official().price_history(code,now,lookback_days=400)
-            # Reuse independently refreshed official financial & KIS flow when present.
+            if fetcher is not None:
+                item=fetcher(code,Official(),now)
+            else:
+                item=dict(st.session_state.get("watch_results",{}).get(code,{}) or {})
+                item["price_rows"]=Official().price_history(code,now,lookback_days=400)
             st.session_state[key]=item
             st.session_state["auto_signal_time_"+code]=datetime.now(ZoneInfo("Asia/Seoul")).strftime("%Y-%m-%d %H:%M")
         except Exception as exc:
@@ -134,4 +133,9 @@ def render():
         label="매수 후보" if score>=80 else "추가 확인" if score>=60 else "관망·검토"
         st.info(f"규칙 기반 분류: {label} (매수 추천 또는 상승 확률이 아닙니다)")
     st.dataframe(pd.DataFrame(rows),hide_index=True,use_container_width=True)
-    st.caption("수급·실적은 관심종목 화면에서 전체 새로고침 시 조회된 데이터를 재사용합니다. 실적 기간, 기준일, API 오류를 반드시 확인하세요. 개인 손절·지지선 항목 5점은 자동 점수에 포함하지 않습니다.")
+    st.caption("공식 시세·실적과 연결된 KIS 일별 수급을 조회합니다. 실적 기간, 각 자료 기준일, API 오류를 반드시 확인하세요. 개인 손절·지지선 항목 5점은 자동 점수에 포함하지 않습니다.")
+    errors=item.get("errors") or {}
+    if errors:
+        with st.expander("데이터 조회 오류·미확인 사유"):
+            for source, reason in errors.items():
+                st.write(f"{source}: {reason}")
