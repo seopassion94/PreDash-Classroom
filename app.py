@@ -498,7 +498,7 @@ def cached_kospi_history(key, asof):
 
 if page == '매수 신호 점수표':
     from predash.buy_signals import render as render_buy_signals
-    render_buy_signals()
+    render_buy_signals(fetcher=watch_fetch)
 
 if page == '돌파·수급 검색':
     from predash.auto_breakout import breakout_candidates, confirmed_joint_buy, ScanError
